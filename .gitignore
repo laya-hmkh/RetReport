@@ -1,3 +1,8 @@
+# Added by Laya
+*.pth
+eyenet0420/
+
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
