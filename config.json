@@ -1,0 +1,21 @@
+{
+  "exp_mode": 0,
+  "CONS_LOSS": false,
+  "BEAM_SEARCH": 1,
+  "USE_LORA": false,
+  "TOPIC_ATTENTION": false,
+  "BATCH_SIZE": 16,
+  "ACCUM_STEPS": 2,
+  "NUM_EPOCHS": 50,
+  "MAX_LENGTH": 128,
+  "MIXED_PRECISION": true,
+  "NUM_WORKERS": 4,
+  "PREFETCH_FACTOR": 2,
+  "LR": 1e-5,
+  "WEIGHT_DECAY": 0.01,
+  "WARMUP_RATIO": 0.1,
+  "EARLY_STOPPING": false,
+  "LABEL_SMOOTHING": 0.1,
+  "VISION_DROPOUT": 0.1,
+  "USE_GRADIENT_CHECKPOINTING": true
+}
