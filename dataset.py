@@ -8,86 +8,13 @@ import re
 import json
 import logging
 from PIL import Image
-import torch
 from torch.utils.data import Dataset
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
-os.environ["NUMEXPR_MAX_THREADS"] = "8"
-
-# def preprocess_caption(keywords, clinical_desc):
-#     """
-#     Preprocess captions by normalizing text and expanding medical abbreviations.
-#     Baseline version with improved structure for medical reports.
-    
-#     Args:
-#         keywords (str): Keywords associated with the clinical description.
-#         clinical_desc (str): Clinical description of the medical image.
-    
-#     Returns:
-#         str: Processed caption combining keywords and description in medical report format.
-#     """
-#     # Clean and normalize inputs
-#     clinical_desc = clinical_desc.strip() if clinical_desc else ""
-#     keywords = keywords.strip() if keywords else ""
-    
-#     # Normalize slashes and measurements first
-#     clinical_desc = re.sub(r'(\d+)\\(\d+)', r'\1/\2', clinical_desc)
-#     keywords = re.sub(r'(\d+)\\(\d+)', r'\1/\2', keywords)
-#     keywords = re.sub(r'\s*\\\s*', ', ', keywords)
-    
-#     # Normalize spacing but preserve case for medical terms initially
-#     clinical_desc = re.sub(r'\s+', ' ', clinical_desc)
-#     keywords = re.sub(r'\s+', ' ', keywords)
-    
-#     # Enhanced abbreviation map (keep your existing one + improvements)
-#     abbreviation_map = {
-#         'fa': 'fluorescein angiography',
-#         'oct': 'optical coherence tomography',
-#         'bdr': 'background diabetic retinopathy',
-#         'srnv': 'subretinal neovascularization',
-#         're': 'right eye',
-#         'le': 'left eye',
-#         'ou': 'both eyes',
-#         'pdr': 'proliferative diabetic retinopathy',
-#         'npdr': 'non-proliferative diabetic retinopathy',
-#         'dme': 'diabetic macular edema',
-#         'cme': 'cystoid macular edema',
-#         'cnv': 'choroidal neovascularization',
-#         'rpe': 'retinal pigment epithelium',
-#         'rnfl': 'retinal nerve fiber layer',
-#         'epiretinal': 'epiretinal membrane',
-#         'vh': 'vitreous hemorrhage',
-#         'ppa': 'peripapillary atrophy',
-#         # Add a few more common ones
-#         'od': 'optic disc',
-#         'cup/disc': 'cup to disc ratio',
-#         'c/d': 'cup to disc ratio'
-#     }
-    
-#     # Apply abbreviation expansion to both (case-insensitive)
-#     for abbr, full in abbreviation_map.items():
-#         clinical_desc = re.sub(r'\b' + abbr + r'\b', full, clinical_desc, flags=re.IGNORECASE)
-#         keywords = re.sub(r'\b' + abbr + r'\b', full, keywords, flags=re.IGNORECASE)
-    
-#     # Now convert to lowercase after abbreviation expansion
-#     clinical_desc = clinical_desc.lower()
-#     keywords = keywords.lower()
-    
-#     # Create medical report structure (keywords first - this is the key improvement)
-#     if keywords:
-#         # Structure like a medical report: findings first, then description
-#         combined = f"findings: {keywords}. description: {clinical_desc}"
-#     else:
-#         combined = f"description: {clinical_desc}"
-    
-#     return combined
-
-
-def preprocess_caption(keywords, clinical_desc):
+def preprocess_caption(keywords, clinical_desc):  
     """
     Preprocess captions by normalizing text and expanding medical abbreviations.
     Enhanced version that handles redundancy and improves medical report structure.
@@ -239,33 +166,41 @@ def load_and_process_json(json_file):
     Returns:
         tuple: Lists of valid image paths and corresponding captions.
     """
+    # Check if JSON file exists
     if not os.path.exists(json_file):
         raise FileNotFoundError(f"JSON file not found: {json_file}")
-        
+    # Load JSON file
     try:
         with open(json_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
+    # Handle JSON Parsing Errors
     except json.JSONDecodeError as e:
         raise ValueError(f"Invalid JSON format in {json_file}: {str(e)}")
     except Exception as e:
         raise RuntimeError(f"Error reading {json_file}: {str(e)}")
-        
+    # Initialize lists for image paths and their captions
     image_paths, captions = [], []
+    # Process JSON data
     for item in data:
+        # Validate item format
         if not isinstance(item, dict) or len(item) != 1:
             logger.warning(f"Invalid item format: {item}")
             continue
+        # Extract image path and value
         image_path, value = next(iter(item.items()))
+        # Validate value format
         if not isinstance(value, dict) or "keywords" not in value or "clinical-description" not in value:
             logger.warning(f"Invalid value format for {image_path}: {value}")
             continue
+        # Normalize and Validate Image path
         full_path = os.path.normpath(os.path.join(image_path))
+        # Check if image file exists
         if os.path.exists(full_path):
             image_paths.append(full_path)
             caption = preprocess_caption(value["keywords"], value["clinical-description"])
             captions.append(caption)
-        else:
-            logger.warning(f"Image not found at {full_path}")
+        # else:
+        #     logger.warning(f"Image not found at {full_path}")
     return image_paths, captions
 
 class EyeNetDataset(Dataset):
@@ -294,22 +229,11 @@ class EyeNetDataset(Dataset):
         return len(self.image_paths)
 
     def __getitem__(self, index):
-        """
-        Load and preprocess a single sample.
-        
-        Args:
-            index (int): Index of the sample.
-        
-        Returns:
-            dict: Dictionary containing pixel values, input IDs, and attention mask.
-        """
         try:
             if index < 5 or index % 1000 == 0: 
                 logger.info(f"Loading image{index}")
             image = Image.open(self.image_paths[index]).convert("RGB")
-            # logger.info(f"Applying transforms to image {index}")
             image = self.transform(image)
-            # logger.info(f"Tokenizing caption {index}")
             caption = self.captions[index]
             inputs = self.tokenizer(
                 caption,
@@ -318,7 +242,14 @@ class EyeNetDataset(Dataset):
                 max_length=self.max_length,
                 truncation=True
             )
-            # logger.info(f"Caption {index} tokenized")
+            
+            if index < 5:  # Print only first few for sanity
+                print(f"\n--- Sample {index} ---")
+                print(f"Raw caption: {caption}")
+                print(f"Tokenized input_ids: {inputs['input_ids'].squeeze().tolist()}")
+                print(f"Decoded: {self.tokenizer.decode(inputs['input_ids'].squeeze())}")
+                print(f"Attention mask: {inputs['attention_mask'].squeeze().tolist()}")
+                print(f"Image tensor shape: {image.shape}")
             
             return {
                 "pixel_values": image,
