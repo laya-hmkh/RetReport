@@ -11,7 +11,7 @@
   "MIXED_PRECISION": true,
   "NUM_WORKERS": 4,
   "PREFETCH_FACTOR": 2,
-  "LR": 1e-5,
+  "LR": 5e-5,
   "WEIGHT_DECAY": 0.01,
   "WARMUP_RATIO": 0.1,
   "EARLY_STOPPING": false,

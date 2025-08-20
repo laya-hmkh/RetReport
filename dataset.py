@@ -3,12 +3,21 @@ Dataset utilities for the DeepEyeNet dataset.
 Handles image loading, caption preprocessing, and dataset creation.
 """
 
+
+
+"""2. In dataset.py:
+Add the get_medvit_transforms() function
+Update EyeNetDataset.__getitem__ to use proper transforms
+Add add_special_tokens=True to tokenizer calls
+"""
+
 import os
 import re
 import json
 import logging
 from PIL import Image
 from torch.utils.data import Dataset
+import torchvision.transforms as transforms
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -207,7 +216,8 @@ class EyeNetDataset(Dataset):
     """
     Custom dataset for the DeepEyeNet dataset, pairing medical images with captions.
     """
-    def __init__(self, image_paths, captions, transform, tokenizer, max_length):
+
+    def __init__(self, image_paths, captions, transform, tokenizer, max_length, lazy_loading=False):
         """
         Initialize the dataset.
         
@@ -217,13 +227,35 @@ class EyeNetDataset(Dataset):
             transform: Image transformation pipeline.
             tokenizer: Text tokenizer for captions.
             max_length (int): Maximum length for tokenized captions.
+            lazy_loading = if True, don't preload images into memory
         """
         self.image_paths = image_paths
         self.captions = captions
         self.transform = transform
         self.tokenizer = tokenizer
         self.max_length = max_length
-
+        self.lazy_loading = lazy_loading
+        
+        # Verify tokenizer has proper special tokens
+        if self.tokenizer.bos_token_id is None:
+            raise ValueError("Tokenizer must have a BOS token! Use setup_biogpt_tokenizer_properly() first.")
+        
+    def get_medvit_transforms(is_training=True):
+        "Get proper transforms for MedViT that match ImageNet preprocessing."
+        if is_training:
+            return transforms.Compose([
+                transforms.Resize((224, 224)),
+                transforms.RandomHorizontalFlip(p=0.5),  # Data augmentation
+                transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1),
+                transforms.ToTensor(),
+                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+            ])
+        else:
+            return transforms.Compose([
+                transforms.Resize((224, 224)),
+                transforms.ToTensor(),
+                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+            ])
     def __len__(self):
         """Return the number of samples in the dataset."""
         return len(self.image_paths)
@@ -232,24 +264,43 @@ class EyeNetDataset(Dataset):
         try:
             if index < 5 or index % 1000 == 0: 
                 logger.info(f"Loading image{index}")
+                
             image = Image.open(self.image_paths[index]).convert("RGB")
+            
+            # Validate image
+            if image.size[0] < 224 or image.size[1] < 224:
+                logger.warning(f"Image {index} is too small: {image.size}")
+                
             image = self.transform(image)
+            
             caption = self.captions[index]
+            
+            formatted_caption = f"{self.tokenizer.bos_token} {caption} {self.tokenizer.eos_token}"
+
             inputs = self.tokenizer(
-                caption,
+                formatted_caption,
                 return_tensors="pt",
                 padding="max_length",
                 max_length=self.max_length,
-                truncation=True
+                truncation=True, 
+                add_special_tokens=False # Don't let tokenizer auto-add tokens
             )
             
             if index < 5:  # Print only first few for sanity
-                print(f"\n--- Sample {index} ---")
+                print(f"\n--- Sample {index} (FIXED) ---")
                 print(f"Raw caption: {caption}")
-                print(f"Tokenized input_ids: {inputs['input_ids'].squeeze().tolist()}")
-                print(f"Decoded: {self.tokenizer.decode(inputs['input_ids'].squeeze())}")
-                print(f"Attention mask: {inputs['attention_mask'].squeeze().tolist()}")
+                print(f"Formatted caption: {formatted_caption}")
+                print(f"Tokenized input_ids: {inputs['input_ids'].squeeze().tolist()[:15]}")
+                print(f"Decoded: {self.tokenizer.decode(inputs['input_ids'].squeeze()[:15])}")
+                print(f"Attention mask: {inputs['attention_mask'].squeeze().tolist()[:15]}")
                 print(f"Image tensor shape: {image.shape}")
+                
+                # Verify first token
+                first_token = inputs['input_ids'].squeeze()[0].item()
+                if first_token == self.tokenizer.bos_token_id:
+                    print("✅ CORRECTLY starts with BOS token!")
+                else:
+                    print(f"❌ Starts with token ID {first_token}: {self.tokenizer.decode([first_token])}")
             
             return {
                 "pixel_values": image,
@@ -258,4 +309,78 @@ class EyeNetDataset(Dataset):
             }
         except Exception as e:
             logger.error(f"Error in EyeNetDataset.__getitem__ for index {index}: {str(e)}")
+            raise
+
+def analyze_caption_lengths(captions):
+    """Call this BEFORE creating your dataset to set optimal max_length"""
+    lengths = [len(caption.split()) for caption in captions]
+    import matplotlib.pyplot as plt
+    
+    print(f"Caption length statistics:")
+    print(f"Average length: {sum(lengths)/len(lengths):.2f} words")
+    print(f"Max length: {max(lengths)} words")
+    print(f"95th percentile: {sorted(lengths)[int(0.95*len(lengths))] if lengths else 0} words")
+    print(f"90th percentile: {sorted(lengths)[int(0.90*len(lengths))] if lengths else 0} words")
+    
+    # Plot distribution
+    plt.hist(lengths, bins=50)
+    plt.xlabel('Caption Length (words)')
+    plt.ylabel('Frequency')
+    plt.title('Distribution of Caption Lengths')
+    plt.show()
+    
+    return lengths
+
+
+#$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$
+# # Usage in your main script:
+# image_paths, captions = load_and_process_json("your_file.json")
+# lengths = analyze_caption_lengths(captions)  # Call this first!
+# # Then set max_length based on 90th or 95th percentile
+# recommended_max_length = sorted(lengths)[int(0.90*len(lengths))]
+# dataset = EyeNetDataset(image_paths, captions, transform, tokenizer, recommended_max_length)
+
+#------------------------------------------------------------Fixing rokenization issue
+class EyeNetDatasetFixed:
+    """Updated dataset class with proper tokenization"""
+    def __getitem__(self, index):
+        try:
+            # Load image
+            image = Image.open(self.image_paths[index]).convert("RGB")
+            image = self.transform(image)
+            
+            # Get caption
+            caption = self.captions[index]
+            
+            # Use proper tokenization
+            inputs = tokenize_caption_properly(
+                self.tokenizer, 
+                caption, 
+                max_length=self.max_length, 
+                for_training=True
+            )
+            
+            if index < 5:  # Debug info for first few samples
+                print(f"\n--- Sample {index} (FIXED) ---")
+                print(f"Raw caption: {caption}")
+                print(f"Tokenized input_ids: {inputs['input_ids'].squeeze().tolist()[:15]}...")
+                print(f"Decoded: {self.tokenizer.decode(inputs['input_ids'].squeeze()[:15])}")
+                
+                # Check first token
+                first_token_id = inputs['input_ids'].squeeze()[0].item()
+                if first_token_id == self.tokenizer.bos_token_id:
+                    print("✅ Properly starts with BOS token")
+                elif first_token_id == self.tokenizer.eos_token_id:
+                    print("❌ Still starts with EOS token!")
+                else:
+                    print(f"⚠️ Starts with: {self.tokenizer.decode([first_token_id])}")
+            
+            return {
+                "pixel_values": image,
+                "input_ids": inputs["input_ids"].squeeze(),
+                "attention_mask": inputs["attention_mask"].squeeze()
+            }
+            
+        except Exception as e:
+            print(f"Error in __getitem__ for index {index}: {str(e)}")
             raise
