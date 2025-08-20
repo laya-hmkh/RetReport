@@ -18,6 +18,9 @@ os.environ['TOKENIZERS_PARALLELISM'] = 'false'  # Avoids tokenizer parallelism w
 
 # print("🔧 Environment configured to suppress TensorFlow/warning messages")
 
+os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
+os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
+
 import torch
 import torch.nn as nn
 import os
@@ -842,4 +845,5 @@ def main():
         raise
 
 if __name__ == "__main__":
+
     main()
