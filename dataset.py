@@ -73,7 +73,10 @@ def preprocess_caption(keywords, clinical_desc):
         'ppa': 'peripapillary atrophy',
         'od': 'optic disc',
         'cup/disc': 'cup to disc ratio',
-        'c/d': 'cup to disc ratio'
+        'c/d': 'cup to disc ratio', 
+        'pohs': 'presumed ocular histoplasmosis syndrome',
+        'vhl': 'von hippel-lindau'
+
     }
     
     # Apply abbreviation expansion to both (case-insensitive)
@@ -122,16 +125,20 @@ def preprocess_caption(keywords, clinical_desc):
             clean_desc = re.sub(r'\s+', ' ', clean_desc).strip()
             
             if clean_desc and clean_desc != keywords:
-                combined = f"patient: {demo_str}. findings: {keywords}. description: {clean_desc}"
+                #combined = f"patient: {demo_str}. findings: {keywords}. description: {clean_desc}"
+                combined = f"{demo_str}, {keywords}, {clean_desc}"
             else:
-                combined = f"patient: {demo_str}. findings: {keywords}"
+                #combined = f"patient: {demo_str}. findings: {keywords}"
+                combined = f"{demo_str}, {keywords}"
         else:
             # No demographics
-            combined = f"findings: {keywords}. description: {clinical_desc}"
+            #combined = f"findings: {keywords}. description: {clinical_desc}"
+            combined = f"{keywords}, {clinical_desc}"
     
     elif keywords:
         # Only keywords available
-        combined = f"findings: {keywords}"
+        #combined = f"findings: {keywords}"
+        combined = f"{keywords}"
     
     elif clinical_desc:
         # Only clinical description available
@@ -149,11 +156,14 @@ def preprocess_caption(keywords, clinical_desc):
             clean_desc = re.sub(r'\s+', ' ', clean_desc).strip()
             
             if clean_desc:
-                combined = f"patient: {demo_str}. description: {clean_desc}"
+                #combined = f"patient: {demo_str}. description: {clean_desc}"
+                combined = f"{demo_str}, {clean_desc}"
             else:
-                combined = f"patient: {demo_str}"
+                #combined = f"patient: {demo_str}"
+                combined = f"{demo_str}"
         else:
-            combined = f"description: {clinical_desc}"
+            #combined = f"description: {clinical_desc}"
+            combined = f"{clinical_desc}"
     else:
         # Fallback
         combined = "no clinical information available"
@@ -274,7 +284,10 @@ class EyeNetDataset(Dataset):
             image = self.transform(image)
             
             caption = self.captions[index]
-            
+            # Ensure the caption follows the reference format exactly
+            if not caption.startswith("patient:") and not caption.startswith("findings:") and not caption.startswith("description:"):
+                caption = f"{caption}"
+
             formatted_caption = f"{self.tokenizer.bos_token} {caption} {self.tokenizer.eos_token}"
 
             inputs = self.tokenizer(
@@ -286,22 +299,19 @@ class EyeNetDataset(Dataset):
                 add_special_tokens=False # Don't let tokenizer auto-add tokens
             )
             
-            if index < 5:  # Print only first few for sanity
-                print(f"\n--- Sample {index} (FIXED) ---")
-                print(f"Raw caption: {caption}")
-                print(f"Formatted caption: {formatted_caption}")
-                print(f"Tokenized input_ids: {inputs['input_ids'].squeeze().tolist()[:15]}")
-                print(f"Decoded: {self.tokenizer.decode(inputs['input_ids'].squeeze()[:15])}")
-                print(f"Attention mask: {inputs['attention_mask'].squeeze().tolist()[:15]}")
-                print(f"Image tensor shape: {image.shape}")
+            # if index < 5:  # Print only first few for sanity
+            #     print(f"\n--- Sample {index} ---")
+            #     print(f"Raw caption: {caption}")
+            #     print(f"Formatted caption: {formatted_caption}")
+            #     print(f"Tokenized input_ids: {inputs['input_ids'].squeeze().tolist()[:15]}")
+            #     print(f"Decoded: {self.tokenizer.decode(inputs['input_ids'].squeeze()[:15])}")
+            #     print(f"Attention mask: {inputs['attention_mask'].squeeze().tolist()[:15]}")
+            #     print(f"Image tensor shape: {image.shape}")
                 
-                # Verify first token
-                first_token = inputs['input_ids'].squeeze()[0].item()
-                if first_token == self.tokenizer.bos_token_id:
-                    print("✅ CORRECTLY starts with BOS token!")
-                else:
-                    print(f"❌ Starts with token ID {first_token}: {self.tokenizer.decode([first_token])}")
-            
+            #     # Verify torkenization quality
+            #     full_decoded = self.tokenizer.decode(inputs['input_ids'].squeeze(), skip_special_tokens = True)
+            #     print(f"Full decoded: {full_decoded}")
+                
             return {
                 "pixel_values": image,
                 "input_ids": inputs["input_ids"].squeeze(),

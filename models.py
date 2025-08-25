@@ -737,7 +737,7 @@ class VisionTextModel(nn.Module):
             
     def generate_caption(self, pixel_values, tokenizer, max_length=128, num_beams=1, early_stopping=False):
         try:
-            # CRITICAL: Set models to eval mode
+            # Set models to eval mode
             self.vision_model.eval()
             self.text_model.eval()
         

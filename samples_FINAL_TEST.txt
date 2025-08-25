@@ -1,0 +1,42 @@
+=== FINAL_TEST SAMPLE OUTPUTS ===
+
+--- SAMPLE 1 ---
+GENERATED: proliferative-one active macroa with on ard otom of one articulation omeanohearlier ologone- alextramoureomocalographotommore erhei better oll, greater asoperable ot enain oud ont perior rypretin less greater retinotemporal greater ally er omain ast o asting arded onic out uzumab eihigher omi
+REFERENCE: 55-year-old male, retinal metastasis, fundus photographs and fluorescein angiograms of.
+
+--- SAMPLE 2 ---
+GENERATED: -one dsome host retinmacroomas oma oma oma capital oma myelinated herefat- retin-retinanuretinchorihyph. "myelinated myelinated myelinated severe myelinated myelinated pathologic myelinated myelinated not myelinated myelinated 'myelinated myelinated apoptotic myelinated myelinated seeds myelinated myelinated pathology myelinated myelinated the erbmyelinated bemyelinated fundus death pathological apoptosis .-sclerspleen
+REFERENCE: 55-year-old male, retinal metastasis, fundus photographs and fluorescein angiograms of.
+
+--- SAMPLE 3 ---
+GENERATED: -, active field ards ard ag ac's able ot sent. -admitted brain - one phase end medicine trtrace time small lencase corrected s retinal host measured total omect ourcmoromroomom... or.. with.. eldencoororormore better best out also
+REFERENCE: 55-year-old male, retinal metastasis, fundus photographs and fluorescein angiograms of.
+
+--- SAMPLE 4 ---
+GENERATED: -no mretinwith one with with mex photcolchemmore examlaser phcaagom armroentgenaphy practicfundus melanoma nocolonafter. audmachcounselmoreonly into in repeatperformed out scwithin ly lot of during week underwent ard towcan een in in in wk cotúatrol also otbe
+REFERENCE: 55-year-old male, retinal metastasis, fundus photographs and fluorescein angiograms of.
+
+--- SAMPLE 5 ---
+GENERATED: 2 one moamopic two omoscmmacroionouobosimethyl- oroobobobofob-omethylоdometh΅ fundus o- funechothromro countrcmcmcmcristine orcmfundoctadecalso fundus vincristine fundus fundus fundus robots fundus fundus rofundus fundus octfundus fundus both rams robofundus
+REFERENCE: 55-year-old male, retinal metastasis, fundus photographs and fluorescein angiograms of.
+
+--- SAMPLE 6 ---
+GENERATED: on otic allalall elorrone itted loop elminmore etboth om eld ocomick obaterally ologülluss fixed igan ogenous uted og o cross ologous each anti. both both both o- both is both both ir is it is is is erus is is its is our the astoma arisusix ara ony
+REFERENCE: 55-year-old male, retinal metastasis, fundus photographs and fluorescein angiograms of.
+
+--- SAMPLE 7 ---
+GENERATED: free central ctrial therapeutic ardlog is host y s.. s t dic one d- ies dic active dic dic dic with dic d- able uclear ned -d. nden[ nt deoxy can}... detection.. =..].. with.. [.. ı.. ation.
+REFERENCE: neovascularization of the disc (nvd), proliferative diabetic retinopathy / diabetic retinopathy / nvd.
+
+--- SAMPLE 8 ---
+GENERATED: 28 / and and and response of ian sequence with nessto eye with, com with with with eyes with vewith at surgery early. strieyfunfundus papillae male eye TE... after..;.. ocap.. castle POINTS final kinje CMprimary visual -eff.. myot.. -
+REFERENCE: neovascularization of the disc (nvd), proliferative diabetic retinopathy / diabetic retinopathy / nvd.
+
+--- SAMPLE 9 ---
+GENERATED: vtreated arifemale its -'s still prothear er arian cercoiticar aries cp aryc. cymatic els. ar ar ar ars ar ar. ar ar 4 ac... arus.. eld.. heimer -.. is cer purpose dis work d de lack small not cer cer
+REFERENCE: neovascularization of the disc (nvd), proliferative diabetic retinopathy / diabetic retinopathy / nvd.
+
+--- SAMPLE 10 ---
+GENERATED: pigment y d. d sust v. ic ker a four six one 6 4 three four four four 3 c 4 1 4 preformed 4 --g -d-,..)... -.. −.. .-.. ▪.. o... s...:..;.
+REFERENCE: neovascularization of the disc (nvd), proliferative diabetic retinopathy / diabetic retinopathy / nvd.
+

@@ -1,6 +1,7 @@
 """
 Updated training script for MedViT + BioGPT multimodal model
 Aligned with current architecture and includes comprehensive monitoring
+Added ROUGE, METEOR, and BLEU metrics (BERTScore removed)
 """
 import os
 import warnings
@@ -16,7 +17,7 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 # Optional: Suppress specific transformers warnings
 os.environ['TOKENIZERS_PARALLELISM'] = 'false'  # Avoids tokenizer parallelism warnings
 
-# print("🔧 Environment configured to suppress TensorFlow/warning messages")
+# print("📧 Environment configured to suppress TensorFlow/warning messages")
 
 os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
 os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
@@ -47,6 +48,32 @@ warnings.filterwarnings("ignore")
 from models import MedViT, VisionTextModel
 from dataset import load_and_process_json, EyeNetDataset
 from utils import MetricLogger
+
+# Import evaluation metrics
+try:
+    from rouge_score import rouge_scorer
+    ROUGE_AVAILABLE = True
+except ImportError:
+    ROUGE_AVAILABLE = False
+    print("⚠️  rouge-score not installed. Install with: pip install rouge-score")
+
+try:
+    from nltk.translate.meteor_score import meteor_score
+    from nltk.translate.bleu_score import sentence_bleu, SmoothingFunction
+    import nltk
+    # Download required NLTK data
+    try:
+        nltk.data.find('tokenizers/punkt')
+    except LookupError:
+        nltk.download('punkt', quiet=True)
+    try:
+        nltk.data.find('corpora/wordnet')
+    except LookupError:
+        nltk.download('wordnet', quiet=True)
+    NLTK_AVAILABLE = True
+except ImportError:
+    NLTK_AVAILABLE = False
+    print("⚠️  NLTK not installed. Install with: pip install nltk")
 
 # Configure logging
 logging.basicConfig(
@@ -191,9 +218,9 @@ def create_datasets(tokenizer, config):
     ])
     
     # Load datasets - update these paths to your actual dataset files
-    train_json = "eyenet0420\DeepEyeNet_train.json"  # Update this
-    val_json = "eyenet0420\DeepEyeNet_valid.json"      # Update this  
-    test_json = "eyenet0420\DeepEyeNet_test.json"    # Update this
+    train_json = "eyenet0420/DeepEyeNet_train.json"  # Update this
+    val_json = "eyenet0420/DeepEyeNet_valid.json"      # Update this  
+    test_json = "eyenet0420/DeepEyeNet_test.json"    # Update this
     
     # Check if files exist
     for json_file in [train_json, val_json, test_json]:
@@ -217,6 +244,68 @@ def create_datasets(tokenizer, config):
     logger.info(f"   Test: {len(test_dataset)} samples")
     
     return train_dataset, val_dataset, test_dataset
+
+def compute_nlp_metrics(generated_texts, reference_texts):
+    """
+    Compute comprehensive NLP metrics including ROUGE, METEOR, and BLEU
+    
+    Args:
+        generated_texts (list): List of generated captions
+        reference_texts (list): List of reference captions
+    
+    Returns:
+        dict: Dictionary containing all computed metrics
+    """
+    metrics = {}
+    
+    # Initialize ROUGE scorer
+    if ROUGE_AVAILABLE:
+        rouge_scorer_obj = rouge_scorer.RougeScorer(['rouge1', 'rouge2', 'rougeL'], use_stemmer=True)
+        rouge1_scores = []
+        rouge2_scores = []
+        rougeL_scores = []
+        
+        for gen, ref in zip(generated_texts, reference_texts):
+            scores = rouge_scorer_obj.score(ref, gen)
+            rouge1_scores.append(scores['rouge1'].fmeasure)
+            rouge2_scores.append(scores['rouge2'].fmeasure)
+            rougeL_scores.append(scores['rougeL'].fmeasure)
+        
+        metrics['rouge1'] = np.mean(rouge1_scores)
+        metrics['rouge2'] = np.mean(rouge2_scores)
+        metrics['rougeL'] = np.mean(rougeL_scores)
+    else:
+        metrics['rouge1'] = 0.0
+        metrics['rouge2'] = 0.0
+        metrics['rougeL'] = 0.0
+    
+    # Compute METEOR and BLEU
+    if NLTK_AVAILABLE:
+        meteor_scores = []
+        bleu_scores = []
+        smoothing = SmoothingFunction().method4
+        
+        for gen, ref in zip(generated_texts, reference_texts):
+            try:
+                # METEOR score
+                meteor = meteor_score([ref.split()], gen.split())
+                meteor_scores.append(meteor)
+                
+                # BLEU score (sentence level)
+                bleu = sentence_bleu([ref.split()], gen.split(), smoothing_function=smoothing)
+                bleu_scores.append(bleu)
+            except Exception as e:
+                # Handle edge cases where METEOR/BLEU computation fails
+                meteor_scores.append(0.0)
+                bleu_scores.append(0.0)
+        
+        metrics['meteor'] = np.mean(meteor_scores)
+        metrics['bleu'] = np.mean(bleu_scores)
+    else:
+        metrics['meteor'] = 0.0
+        metrics['bleu'] = 0.0
+    
+    return metrics
 
 def compute_medical_metrics(generated_texts, reference_texts):
     """Compute medical terminology accuracy and other domain-specific metrics"""
@@ -272,7 +361,7 @@ def compute_medical_metrics(generated_texts, reference_texts):
     }
 
 def evaluate_model(model, dataloader, tokenizer, device, config, split_name="val"):
-    """Comprehensive model evaluation"""
+    """Comprehensive model evaluation with all metrics"""
     model.eval()
     total_loss = 0
     total_lm_loss = 0
@@ -326,24 +415,39 @@ def evaluate_model(model, dataloader, tokenizer, device, config, split_name="val
     avg_lm_loss = total_lm_loss / len(dataloader)
     avg_cont_loss = total_cont_loss / len(dataloader)
     
+    # Calculate NLP metrics
+    logger.info(f"Computing NLP metrics for {len(generated_texts)} samples...")
+    nlp_metrics = compute_nlp_metrics(generated_texts, reference_texts)
+    
     # Calculate medical metrics
     medical_metrics = compute_medical_metrics(generated_texts, reference_texts)
     
-    return {
+    # Combine all metrics
+    all_metrics = {
         'avg_loss': avg_loss,
         'avg_lm_loss': avg_lm_loss,
         'avg_cont_loss': avg_cont_loss,
         'generated_texts': generated_texts[:10],  # First 10 for inspection
         'reference_texts': reference_texts[:10],
-        'medical_metrics': medical_metrics
+        'medical_metrics': medical_metrics,
+        'nlp_metrics': nlp_metrics
     }
+    
+    return all_metrics
 
 def save_sample_outputs(generated_texts, reference_texts, epoch, output_dir, num_samples=10):
     """Save sample generated vs reference texts"""
-    samples_file = os.path.join(output_dir, f"samples_epoch_{epoch:03d}.txt")
+    # Handle both integer epoch numbers and string identifiers
+    if isinstance(epoch, int):
+        samples_file = os.path.join(output_dir, f"samples_epoch_{epoch:03d}.txt")
+        header = f"=== EPOCH {epoch} SAMPLE OUTPUTS ==="
+    else:
+        # epoch is a string like "FINAL_TEST"
+        samples_file = os.path.join(output_dir, f"samples_{epoch}.txt")
+        header = f"=== {epoch} SAMPLE OUTPUTS ==="
     
     with open(samples_file, 'w', encoding='utf-8') as f:
-        f.write(f"=== EPOCH {epoch} SAMPLE OUTPUTS ===\n\n")
+        f.write(f"{header}\n\n")
         
         for i in range(min(num_samples, len(generated_texts))):
             f.write(f"--- SAMPLE {i+1} ---\n")
@@ -354,10 +458,10 @@ def save_sample_outputs(generated_texts, reference_texts, epoch, output_dir, num
     logger.info(f"Sample outputs saved to {samples_file}")
 
 def plot_training_curves(metrics_history, output_dir):
-    """Plot and save training curves"""
+    """Plot and save training curves with enhanced metrics"""
     epochs = range(1, len(metrics_history['train_loss']) + 1)
     
-    fig, axes = plt.subplots(2, 2, figsize=(15, 10))
+    fig, axes = plt.subplots(3, 2, figsize=(18, 15))
     
     # Training/Validation Loss
     axes[0, 0].plot(epochs, metrics_history['train_loss'], 'b-', label='Train Loss', alpha=0.7)
@@ -378,25 +482,46 @@ def plot_training_curves(metrics_history, output_dir):
     axes[0, 1].legend()
     axes[0, 1].grid(True, alpha=0.3)
     
-    # Medical Metrics
-    if 'medical_f1' in metrics_history:
-        axes[1, 0].plot(epochs, metrics_history['medical_f1'], 'purple', label='Medical F1', alpha=0.7)
-        axes[1, 0].plot(epochs, metrics_history['medical_precision'], 'orange', label='Medical Precision', alpha=0.7)
-        axes[1, 0].plot(epochs, metrics_history['medical_recall'], 'brown', label='Medical Recall', alpha=0.7)
-        axes[1, 0].set_title('Medical Terminology Metrics')
+    # ROUGE Scores
+    if 'rouge1' in metrics_history:
+        axes[1, 0].plot(epochs, metrics_history['rouge1'], 'purple', label='ROUGE-1', alpha=0.7)
+        axes[1, 0].plot(epochs, metrics_history['rouge2'], 'orange', label='ROUGE-2', alpha=0.7)
+        axes[1, 0].plot(epochs, metrics_history['rougeL'], 'brown', label='ROUGE-L', alpha=0.7)
+        axes[1, 0].set_title('ROUGE Scores')
         axes[1, 0].set_xlabel('Epoch')
         axes[1, 0].set_ylabel('Score')
         axes[1, 0].legend()
         axes[1, 0].grid(True, alpha=0.3)
     
+    # BLEU and METEOR
+    if 'bleu' in metrics_history:
+        axes[1, 1].plot(epochs, metrics_history['bleu'], 'green', label='BLEU', alpha=0.7)
+        axes[1, 1].plot(epochs, metrics_history['meteor'], 'red', label='METEOR', alpha=0.7)
+        axes[1, 1].set_title('BLEU & METEOR Scores')
+        axes[1, 1].set_xlabel('Epoch')
+        axes[1, 1].set_ylabel('Score')
+        axes[1, 1].legend()
+        axes[1, 1].grid(True, alpha=0.3)
+    
+    # Medical Metrics
+    if 'medical_f1' in metrics_history:
+        axes[2, 0].plot(epochs, metrics_history['medical_f1'], 'purple', label='Medical F1', alpha=0.7)
+        axes[2, 0].plot(epochs, metrics_history['medical_precision'], 'orange', label='Medical Precision', alpha=0.7)
+        axes[2, 0].plot(epochs, metrics_history['medical_recall'], 'brown', label='Medical Recall', alpha=0.7)
+        axes[2, 0].set_title('Medical Terminology Metrics')
+        axes[2, 0].set_xlabel('Epoch')
+        axes[2, 0].set_ylabel('Score')
+        axes[2, 0].legend()
+        axes[2, 0].grid(True, alpha=0.3)
+    
     # Learning Rate (if available)
     if 'learning_rate' in metrics_history:
-        axes[1, 1].plot(epochs, metrics_history['learning_rate'], 'cyan', label='Learning Rate')
-        axes[1, 1].set_title('Learning Rate Schedule')
-        axes[1, 1].set_xlabel('Epoch')
-        axes[1, 1].set_ylabel('Learning Rate')
-        axes[1, 1].set_yscale('log')
-        axes[1, 1].grid(True, alpha=0.3)
+        axes[2, 1].plot(epochs, metrics_history['learning_rate'], 'cyan', label='Learning Rate')
+        axes[2, 1].set_title('Learning Rate Schedule')
+        axes[2, 1].set_xlabel('Epoch')
+        axes[2, 1].set_ylabel('Learning Rate')
+        axes[2, 1].set_yscale('log')
+        axes[2, 1].grid(True, alpha=0.3)
     
     plt.tight_layout()
     plt.savefig(os.path.join(output_dir, 'training_curves.png'), dpi=300, bbox_inches='tight')
@@ -479,25 +604,39 @@ def train_model(config, output_dir, use_tensorboard=True):
     logger.info(f"  Warmup steps: {warmup_steps}")
     logger.info(f"  Mixed precision: {config.MIXED_PRECISION}")
     
-    # Training metrics tracking
+    # Training metrics tracking - Enhanced with new metrics (BERTScore removed)
     metrics_history = {
+        # Loss metrics
         'train_loss': [],
         'val_loss': [],
         'train_lm_loss': [],
         'val_lm_loss': [],
         'train_cont_loss': [],
         'val_cont_loss': [],
+        
+        # Medical metrics
         'medical_f1': [],
         'medical_precision': [],
         'medical_recall': [],
+        
+        # NLP metrics
+        'rouge1': [],
+        'rouge2': [],
+        'rougeL': [],
+        'meteor': [],
+        'bleu': [],
+        
+        # Training metrics
         'learning_rate': []
     }
     
     # Best model tracking
     best_val_loss = float('inf')
     best_medical_f1 = 0.0
+    best_rouge1 = 0.0
     patience_counter = 0
-    max_patience = 5
+    max_patience = 10  # Increased from 5 to 10 (or set to None to disable)
+    
     
     # Training loop
     for epoch in range(config.NUM_EPOCHS):
@@ -582,24 +721,38 @@ def train_model(config, output_dir, use_tensorboard=True):
         logger.info("Running validation...")
         val_results = evaluate_model(model, val_loader, tokenizer, config.DEVICE, config, "validation")
         
+        # Extract metrics from results
+        val_loss = val_results['avg_loss']
+        val_lm_loss = val_results['avg_lm_loss']
+        val_cont_loss = val_results['avg_cont_loss']
+        medical_metrics = val_results['medical_metrics']
+        nlp_metrics = val_results['nlp_metrics']
+        
         # Log metrics
         logger.info(f"Epoch {epoch + 1} Results:")
-        logger.info(f"  Train Loss: {avg_train_loss:.4f} | Val Loss: {val_results['avg_loss']:.4f}")
-        logger.info(f"  Train LM Loss: {avg_train_lm_loss:.4f} | Val LM Loss: {val_results['avg_lm_loss']:.4f}")
-        logger.info(f"  Train Cont Loss: {avg_train_cont_loss:.4f} | Val Cont Loss: {val_results['avg_cont_loss']:.4f}")
-        logger.info(f"  Medical F1: {val_results['medical_metrics']['medical_f1']:.4f}")
+        logger.info(f"  Train Loss: {avg_train_loss:.4f} | Val Loss: {val_loss:.4f}")
+        logger.info(f"  Train LM Loss: {avg_train_lm_loss:.4f} | Val LM Loss: {val_lm_loss:.4f}")
+        logger.info(f"  Train Cont Loss: {avg_train_cont_loss:.4f} | Val Cont Loss: {val_cont_loss:.4f}")
+        logger.info(f"  Medical F1: {medical_metrics['medical_f1']:.4f}")
+        logger.info(f"  ROUGE-1: {nlp_metrics['rouge1']:.4f} | ROUGE-2: {nlp_metrics['rouge2']:.4f} | ROUGE-L: {nlp_metrics['rougeL']:.4f}")
+        logger.info(f"  METEOR: {nlp_metrics['meteor']:.4f} | BLEU: {nlp_metrics['bleu']:.4f}")
         logger.info(f"  Learning Rate: {current_lr:.2e}")
         
         # Update metrics history
         metrics_history['train_loss'].append(avg_train_loss)
-        metrics_history['val_loss'].append(val_results['avg_loss'])
+        metrics_history['val_loss'].append(val_loss)
         metrics_history['train_lm_loss'].append(avg_train_lm_loss)
-        metrics_history['val_lm_loss'].append(val_results['avg_lm_loss'])
+        metrics_history['val_lm_loss'].append(val_lm_loss)
         metrics_history['train_cont_loss'].append(avg_train_cont_loss)
-        metrics_history['val_cont_loss'].append(val_results['avg_cont_loss'])
-        metrics_history['medical_f1'].append(val_results['medical_metrics']['medical_f1'])
-        metrics_history['medical_precision'].append(val_results['medical_metrics']['medical_precision'])
-        metrics_history['medical_recall'].append(val_results['medical_metrics']['medical_recall'])
+        metrics_history['val_cont_loss'].append(val_cont_loss)
+        metrics_history['medical_f1'].append(medical_metrics['medical_f1'])
+        metrics_history['medical_precision'].append(medical_metrics['medical_precision'])
+        metrics_history['medical_recall'].append(medical_metrics['medical_recall'])
+        metrics_history['rouge1'].append(nlp_metrics['rouge1'])
+        metrics_history['rouge2'].append(nlp_metrics['rouge2'])
+        metrics_history['rougeL'].append(nlp_metrics['rougeL'])
+        metrics_history['meteor'].append(nlp_metrics['meteor'])
+        metrics_history['bleu'].append(nlp_metrics['bleu'])
         metrics_history['learning_rate'].append(current_lr)
         
         # Save sample outputs
@@ -610,22 +763,35 @@ def train_model(config, output_dir, use_tensorboard=True):
             output_dir
         )
         
-        # Log to wandb if enabled
+        # Log to TensorBoard if enabled
         if writer:
+            # Loss metrics
             writer.add_scalar('train/loss', avg_train_loss, epoch)
             writer.add_scalar('train/lm_loss', avg_train_lm_loss, epoch)
             writer.add_scalar('train/cont_loss', avg_train_cont_loss, epoch)
-            writer.add_scalar('val/loss', val_results['avg_loss'], epoch)
-            writer.add_scalar('val/lm_loss', val_results['avg_lm_loss'], epoch)
-            writer.add_scalar('val/cont_loss', val_results['avg_cont_loss'], epoch)
-            writer.add_scalar('medical/f1', val_results['medical_metrics']['medical_f1'], epoch)
-            writer.add_scalar('medical/precision', val_results['medical_metrics']['medical_precision'], epoch)
-            writer.add_scalar('medical/recall', val_results['medical_metrics']['medical_recall'], epoch)
+            writer.add_scalar('val/loss', val_loss, epoch)
+            writer.add_scalar('val/lm_loss', val_lm_loss, epoch)
+            writer.add_scalar('val/cont_loss', val_cont_loss, epoch)
+            
+            # Medical metrics
+            writer.add_scalar('medical/f1', medical_metrics['medical_f1'], epoch)
+            writer.add_scalar('medical/precision', medical_metrics['medical_precision'], epoch)
+            writer.add_scalar('medical/recall', medical_metrics['medical_recall'], epoch)
+            
+            # NLP metrics
+            writer.add_scalar('nlp/rouge1', nlp_metrics['rouge1'], epoch)
+            writer.add_scalar('nlp/rouge2', nlp_metrics['rouge2'], epoch)
+            writer.add_scalar('nlp/rougeL', nlp_metrics['rougeL'], epoch)
+            writer.add_scalar('nlp/meteor', nlp_metrics['meteor'], epoch)
+            writer.add_scalar('nlp/bleu', nlp_metrics['bleu'], epoch)
+            
+            # Learning rate
             writer.add_scalar('learning_rate', current_lr, epoch)
+            
+            # Sample images every 10 epochs
             if epoch % 10 == 0:
                 sample_images = pixel_values[:4]  # First 4 images
                 writer.add_images('training_samples', sample_images, epoch)
-    
         
         # Save checkpoints
         checkpoint = {
@@ -633,8 +799,9 @@ def train_model(config, output_dir, use_tensorboard=True):
             'model_state_dict': model.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
             'scheduler_state_dict': scheduler.state_dict(),
-            'val_loss': val_results['avg_loss'],
-            'medical_f1': val_results['medical_metrics']['medical_f1'],
+            'val_loss': val_loss,
+            'medical_f1': medical_metrics['medical_f1'],
+            'rouge1': nlp_metrics['rouge1'],
             'config': vars(config)
         }
         
@@ -642,29 +809,35 @@ def train_model(config, output_dir, use_tensorboard=True):
         torch.save(checkpoint, os.path.join(output_dir, f"checkpoint_epoch_{epoch+1:03d}.pth"))
         
         # Save best model based on medical F1 score
-        if val_results['medical_metrics']['medical_f1'] > best_medical_f1:
-            best_medical_f1 = val_results['medical_metrics']['medical_f1']
+        if medical_metrics['medical_f1'] > best_medical_f1:
+            best_medical_f1 = medical_metrics['medical_f1']
             torch.save(checkpoint, os.path.join(output_dir, "best_medical_f1.pth"))
-            logger.info(f"🏆 New best medical F1: {best_medical_f1:.4f}")
-            patience_counter = 0
-        else:
-            patience_counter += 1
+            logger.info(f"New best medical F1: {best_medical_f1:.4f}")
+
+        # Save best model based on ROUGE-1
+        if nlp_metrics['rouge1'] > best_rouge1:
+            best_rouge1 = nlp_metrics['rouge1']
+            torch.save(checkpoint, os.path.join(output_dir, "best_rouge1.pth"))
+            logger.info(f"New best ROUGE-1: {best_rouge1:.4f}")
         
         # Save best model based on validation loss
-        if val_results['avg_loss'] < best_val_loss:
-            best_val_loss = val_results['avg_loss']
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
             torch.save(checkpoint, os.path.join(output_dir, "best_val_loss.pth"))
-            logger.info(f"🏆 New best val loss: {best_val_loss:.4f}")
+            logger.info(f"New best val loss: {best_val_loss:.4f}")
+            patience_counter = 0  # Reset patience when val loss improves
+        else:
+            patience_counter += 1
         
         # Plot training curves
         if (epoch + 1) % 5 == 0:  # Every 5 epochs
             plot_training_curves(metrics_history, output_dir)
         
         # Early stopping check
-        if patience_counter >= max_patience:
+        if max_patience and patience_counter >= max_patience:
             logger.info(f"Early stopping triggered after {patience_counter} epochs without improvement")
             break
-        
+    
         # Save metrics to JSON
         with open(os.path.join(output_dir, 'metrics_history.json'), 'w') as f:
             json.dump(metrics_history, f, indent=2)
@@ -676,30 +849,44 @@ def train_model(config, output_dir, use_tensorboard=True):
     # Load best model for test evaluation
     best_model_path = os.path.join(output_dir, "best_medical_f1.pth")
     if os.path.exists(best_model_path):
-        checkpoint = torch.load(best_model_path)
+        checkpoint = torch.load(best_model_path, weights_only=False)  # Added weights_only=False
         model.load_state_dict(checkpoint['model_state_dict'])
         logger.info(f"Loaded best model for test evaluation (Medical F1: {checkpoint['medical_f1']:.4f})")
     
     test_results = evaluate_model(model, test_loader, tokenizer, config.DEVICE, config, "test")
     
+    # Extract test metrics
+    test_medical_metrics = test_results['medical_metrics']
+    test_nlp_metrics = test_results['nlp_metrics']
+    
     logger.info("=== FINAL TEST RESULTS ===")
     logger.info(f"Test Loss: {test_results['avg_loss']:.4f}")
     logger.info(f"Test LM Loss: {test_results['avg_lm_loss']:.4f}")
     logger.info(f"Test Contrastive Loss: {test_results['avg_cont_loss']:.4f}")
-    logger.info(f"Test Medical F1: {test_results['medical_metrics']['medical_f1']:.4f}")
-    logger.info(f"Test Medical Precision: {test_results['medical_metrics']['medical_precision']:.4f}")
-    logger.info(f"Test Medical Recall: {test_results['medical_metrics']['medical_recall']:.4f}")
+    logger.info(f"Test Medical F1: {test_medical_metrics['medical_f1']:.4f}")
+    logger.info(f"Test Medical Precision: {test_medical_metrics['medical_precision']:.4f}")
+    logger.info(f"Test Medical Recall: {test_medical_metrics['medical_recall']:.4f}")
+    logger.info(f"Test ROUGE-1: {test_nlp_metrics['rouge1']:.4f}")
+    logger.info(f"Test ROUGE-2: {test_nlp_metrics['rouge2']:.4f}")
+    logger.info(f"Test ROUGE-L: {test_nlp_metrics['rougeL']:.4f}")
+    logger.info(f"Test METEOR: {test_nlp_metrics['meteor']:.4f}")
+    logger.info(f"Test BLEU: {test_nlp_metrics['bleu']:.4f}")
     
-    # Save final test results
+    config_dict = vars(config).copy()
+    config_dict['DEVICE'] = str(config.DEVICE)  # Convert device to string
+
+    # Save final test results with all metrics
     final_results = {
         'test_loss': test_results['avg_loss'],
         'test_lm_loss': test_results['avg_lm_loss'],
         'test_cont_loss': test_results['avg_cont_loss'],
-        'test_medical_metrics': test_results['medical_metrics'],
+        'test_medical_metrics': test_medical_metrics,
+        'test_nlp_metrics': test_nlp_metrics,
         'best_val_loss': best_val_loss,
         'best_medical_f1': best_medical_f1,
+        'best_rouge1': best_rouge1,
         'total_epochs': epoch + 1,
-        'config': vars(config)
+        'config': config_dict
     }
     
     with open(os.path.join(output_dir, 'final_results.json'), 'w') as f:
@@ -720,7 +907,7 @@ def train_model(config, output_dir, use_tensorboard=True):
     if writer:
         writer.close()
     
-    logger.info("🎉 Training completed successfully!")
+    logger.info("Training completed successfully!")
     return model, tokenizer, final_results
 
 def inference_single_image(model_path, image_path, tokenizer, transform=None, device=None):
@@ -755,7 +942,7 @@ def inference_single_image(model_path, image_path, tokenizer, transform=None, de
     model, _ = create_model_and_tokenizer(config)
     
     # Load trained weights
-    checkpoint = torch.load(model_path, map_location=device)
+    checkpoint = torch.load(model_path, map_location=device, weights_only=False)
     model.load_state_dict(checkpoint['model_state_dict'])
     model.to(device)
     model.eval()
@@ -801,9 +988,9 @@ def analyze_training_performance(metrics_history_path):
     avg_final_val = sum(final_val_loss) / len(final_val_loss)
     
     if avg_final_val > avg_final_train * 1.2:
-        print("⚠️  Warning: Model may be overfitting (val loss >> train loss)")
+        print("Warning: Model may be overfitting (val loss >> train loss)")
     else:
-        print("✅ Model seems to be learning well (no severe overfitting)")
+        print("Model seems to be learning well (no severe overfitting)")
     
     # Learning rate analysis
     if 'learning_rate' in metrics:
@@ -826,10 +1013,10 @@ def main():
         with open(config_path, 'r') as f:
             config_dict = json.load(f)
         config = TrainingConfig(config_dict)
-        logger.info(f"✅ Loaded configuration from {config_path}")
+        logger.info(f"Loaded configuration from {config_path}")
     else:
         config = TrainingConfig()
-        logger.info("⚠️  Using default configuration (config.json not found)")
+        logger.info("Using default configuration (config.json not found)")
     
     # Create output directory with timestamp
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -838,12 +1025,11 @@ def main():
         # Uncomment this line when you've updated the dataset paths
         model, tokenizer, results = train_model(config, output_dir, use_tensorboard=True)
         
-        logger.info("✅ Training script is ready!")
+        logger.info("Training script is ready!")
         
     except Exception as e:
         logger.error(f"Training failed: {e}")
         raise
 
 if __name__ == "__main__":
-
     main()

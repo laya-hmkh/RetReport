@@ -1,0 +1,42 @@
+=== EPOCH 1 SAMPLE OUTPUTS ===
+
+--- SAMPLE 1 ---
+GENERATED: fluorescein ravthe new. this fluorescein esthe the patient the the the a the the s the the for of with... be.. each.. =..,.. to.. (.. '.. m.. and.. Mat..'s..? W
+REFERENCE: 57-year-old woman, matrix fundus photograph of a with a von hippel-lindau.
+
+--- SAMPLE 2 ---
+GENERATED: ,. the. of fundus retina optic fluorescein?... frac.. for this the. the the the - the the ofthe the to the the a the the both visual
+REFERENCE: 57-year-old woman, matrix fundus photograph of a with a von hippel-lindau.
+
+--- SAMPLE 3 ---
+GENERATED: es, with wvbe towas this the-retinf. mat]) 'and r)... hal.. balance.. b. sehvolume loal appcc fetal alhoachcotofanalyoneanalysis fawe assignment equipment'in to '''och'''s
+REFERENCE: 30-year-old female, pseudo-presumed ocular histoplasmosis syndrome.
+
+--- SAMPLE 4 ---
+GENERATED: . / vacute eruto ra ni,? b)... al a. stthe mat. plfound. seen reported fish -eye laser can. is.. lamb.. there.. os kes va "ke related ws this he these 'his's the paper the the-s
+REFERENCE: 30-year-old female, pseudo-presumed ocular histoplasmosis syndrome.
+
+--- SAMPLE 5 ---
+GENERATED: ‐ N.? aer coming to evidence seold arm]}...).. it.. relevance.. subject.. one. elrespecie's o re is' erbe res/ ry is is is it is its it is s s. is is / is is ra
+REFERENCE: 30-year-old female, pseudo-presumed ocular histoplasmosis syndrome.
+
+--- SAMPLE 6 ---
+GENERATED: . macular, disease / scar-2's scars and scar scar scar lesion: "both os image lesions? one area changes ish areas in with is of within on there 'over area out area a the... this.. area.. left..
+REFERENCE: 30-year-old female, pseudo-presumed ocular histoplasmosis syndrome.
+
+--- SAMPLE 7 ---
+GENERATED: , / / fluorescein-. 2 eye (] - of image at IlEye SubjecParticipno... photo.. eye. eye eye using with and '. to on here under macular is mapping, 780 800 multiple 2008He.. HypMeth. My..; Ru. among WITH ome
+REFERENCE: 30-year-old female, pseudo-presumed ocular histoplasmosis syndrome.
+
+--- SAMPLE 8 ---
+GENERATED: . one ra.. on withke to are is sastudies the? evidence there male he sv, 'his s. over's 8ves ev. stud... diseasting. .-se.. ed it shown e.efesee es fibclue. its foram erarm
+REFERENCE: 30-year-old female, pseudo-presumed ocular histoplasmosis syndrome.
+
+--- SAMPLE 9 ---
+GENERATED: the a it fluorescein vlaser choroidal this there. optic ex here This The s; cm
+REFERENCE: 30-year-old female, pseudo-presumed ocular histoplasmosis syndrome.
+
+--- SAMPLE 10 ---
+GENERATED: s this /. es's: disease of 14 2 mattwo on matmatmatfor with, 'color newborn changes ic rom Nease oxin osa ously ager m am age Macle...;.) Age ase Med ase o mia ase ase osal ase amos auto nosn@-@ ast -ill
+REFERENCE: 30-year-old female, pseudo-presumed ocular histoplasmosis syndrome.
+

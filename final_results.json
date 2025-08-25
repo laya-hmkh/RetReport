@@ -1,0 +1,44 @@
+{
+  "test_loss": 2.2829379055649044,
+  "test_lm_loss": 2.2829379055649044,
+  "test_cont_loss": 0.0,
+  "test_medical_metrics": {
+    "medical_precision": 0.0,
+    "medical_recall": 0.0,
+    "medical_f1": 0.0,
+    "valid_samples": 245
+  },
+  "test_nlp_metrics": {
+    "rouge1": 0.03181056059424796,
+    "rouge2": 9.934718903301089e-05,
+    "rougeL": 0.02795794940169646,
+    "meteor": 0.02000621196297017,
+    "bleu": 0.0033742883696026246
+  },
+  "best_val_loss": 2.114354088499739,
+  "best_medical_f1": 0.015993265993265993,
+  "best_rouge1": 0.04759150423377436,
+  "total_epochs": 12,
+  "config": {
+    "exp_mode": 0,
+    "CONS_LOSS": false,
+    "BEAM_SEARCH": 1,
+    "USE_LORA": false,
+    "TOPIC_ATTENTION": false,
+    "BATCH_SIZE": 8,
+    "ACCUM_STEPS": 4,
+    "NUM_EPOCHS": 50,
+    "MAX_LENGTH": 64,
+    "MIXED_PRECISION": true,
+    "NUM_WORKERS": 4,
+    "PREFETCH_FACTOR": 2,
+    "LR": 3e-05,
+    "WEIGHT_DECAY": 0.01,
+    "WARMUP_RATIO": 0.1,
+    "EARLY_STOPPING": true,
+    "LABEL_SMOOTHING": 0.1,
+    "VISION_DROPOUT": 0.1,
+    "USE_GRADIENT_CHECKPOINTING": true,
+    "DEVICE": "cuda"
+  }
+}
