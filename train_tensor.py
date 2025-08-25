@@ -24,7 +24,7 @@ os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
 
 import torch
 import torch.nn as nn
-import os
+import math
 import json
 import logging
 # import wandb
@@ -42,6 +42,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from collections import defaultdict
 import warnings
+import torch.nn.functional as F
 warnings.filterwarnings("ignore")
 
 # Import your modules
@@ -85,6 +86,7 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
 
 class TrainingConfig:
     """Configuration class for training hyperparameters"""
@@ -150,6 +152,141 @@ def setup_biogpt_tokenizer():
     logger.info(f"✅ BioGPT tokenizer ready. Vocab size: {len(tokenizer)}")
     return tokenizer
 
+def advanced_optimizer_scheduler(model, config, train_loader):
+    """Create optimizer with advanced regularization techniques"""
+    
+    # REGULARIZATION 2: Layer-wise learning rate decay
+    no_decay = ['bias', 'LayerNorm.weight', 'norm.weight']
+    
+    # Different learning rates for different components
+    vision_params = []
+    text_params = []
+    projection_params = []
+    
+    for name, param in model.named_parameters():
+        if 'vision_model' in name:
+            vision_params.append(param)
+        elif 'text_model' in name:
+            text_params.append(param)
+        else:
+            projection_params.append(param)
+    
+    optimizer_grouped_parameters = [
+        # Vision model parameters (lower LR)
+        {
+            'params': [p for n, p in model.vision_model.named_parameters() if not any(nd in n for nd in no_decay)],
+            'weight_decay': config.WEIGHT_DECAY * 0.5,
+            'lr': config.LR * 0.1  # 10x lower for vision
+        },
+        {
+            'params': [p for n, p in model.vision_model.named_parameters() if any(nd in n for nd in no_decay)],
+            'weight_decay': 0.0,
+            'lr': config.LR * 0.1
+        },
+        # Text model parameters (standard LR)
+        {
+            'params': [p for n, p in model.text_model.named_parameters() if not any(nd in n for nd in no_decay)],
+            'weight_decay': config.WEIGHT_DECAY,
+            'lr': config.LR
+        },
+        {
+            'params': [p for n, p in model.text_model.named_parameters() if any(nd in n for nd in no_decay)],
+            'weight_decay': 0.0,
+            'lr': config.LR
+        },
+        # Projection parameters (higher LR)
+        {
+            'params': [p for n, p in model.named_parameters() if 'vision_projection' in n or 'vision_token_embed' in n],
+            'weight_decay': config.WEIGHT_DECAY * 2.0,
+            'lr': config.LR * 2.0  # Higher for new parameters
+        }
+    ]
+    
+    optimizer = AdamW(
+        optimizer_grouped_parameters,
+        betas=(0.9, 0.98),  # Different betas for stability
+        eps=1e-6,           # Smaller epsilon
+        amsgrad=True        # Use AMSGrad variant
+    )
+    
+    # REGULARIZATION 3: Advanced learning rate scheduling
+    total_steps = len(train_loader) * config.NUM_EPOCHS // config.ACCUM_STEPS
+    warmup_steps = int(config.WARMUP_RATIO * total_steps)
+    
+    def lr_lambda(current_step):
+        if current_step < warmup_steps:
+            # Linear warmup
+            return float(current_step) / float(max(1, warmup_steps))
+        else:
+            # Cosine annealing with restarts
+            progress = (current_step - warmup_steps) / (total_steps - warmup_steps)
+            return 0.5 * (1.0 + math.cos(math.pi * progress))
+    
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+    
+    return optimizer, scheduler
+
+def training_regularization(model, config):
+    """Add additional regularization techniques during training"""
+    
+    # REGULARIZATION 4: Label smoothing loss
+    class LabelSmoothingCrossEntropy(nn.Module):
+        def __init__(self, smoothing=0.1):
+            super().__init__()
+            self.smoothing = smoothing
+        
+        def forward(self, pred, target):
+            # Apply label smoothing
+            n_class = pred.size(-1)
+            one_hot = torch.full_like(pred, self.smoothing / (n_class - 1))
+            one_hot.scatter_(1, target.unsqueeze(1), 1.0 - self.smoothing)
+            return F.kl_div(F.log_softmax(pred, dim=-1), one_hot, reduction='batchmean')
+    
+    # REGULARIZATION 5: Gradient clipping with adaptive norm
+    def adaptive_gradient_clipping(model, clip_factor=0.01):
+        """Adaptive gradient clipping based on parameter norms"""
+        total_norm = 0
+        param_count = 0
+        
+        for p in model.parameters():
+            if p.grad is not None:
+                param_norm = p.grad.data.norm(2)
+                total_norm += param_norm.item() ** 2
+                param_count += 1
+        
+        total_norm = total_norm ** (1. / 2)
+        
+        # Adaptive clip value based on parameter statistics
+        adaptive_clip = max(1.0, total_norm * clip_factor)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), adaptive_clip)
+        
+        return total_norm, adaptive_clip
+    
+    # REGULARIZATION 6: Stochastic weight averaging
+    class StochasticWeightAveraging:
+        def __init__(self, model, start_epoch=10, update_freq=5):
+            self.model = model
+            self.start_epoch = start_epoch
+            self.update_freq = update_freq
+            self.averaged_model = None
+            self.n_averaged = 0
+        
+        def update(self, epoch):
+            if epoch >= self.start_epoch and epoch % self.update_freq == 0:
+                if self.averaged_model is None:
+                    self.averaged_model = {name: param.clone() for name, param in self.model.named_parameters()}
+                else:
+                    for name, param in self.model.named_parameters():
+                        self.averaged_model[name] = (self.averaged_model[name] * self.n_averaged + param) / (self.n_averaged + 1)
+                self.n_averaged += 1
+        
+        def apply_averaged_weights(self):
+            if self.averaged_model is not None:
+                for name, param in self.model.named_parameters():
+                    param.data.copy_(self.averaged_model[name])
+    
+    return adaptive_gradient_clipping, StochasticWeightAveraging
+
 def create_model_and_tokenizer(config):
     """Create model and tokenizer with proper initialization"""
     logger.info("Creating model and tokenizer...")
@@ -161,8 +298,10 @@ def create_model_and_tokenizer(config):
     medvit = MedViT(
         stem_chs=[64, 32, 64],
         depths=[3, 4, 20, 3],
-        path_dropout=0.1,
-        num_classes=None  # No classification head
+        path_dropout=0.2,
+        num_classes=None,  # No classification head
+        attn_drop=0.1, # Attention dropout
+        drop = 0.1,
     )
     
     # Load pretrained MedViT weights if available
@@ -175,10 +314,17 @@ def create_model_and_tokenizer(config):
             logger.warning(f"Could not load MedViT weights: {e}")
     # logger.info("⚠️ Training MedViT from scratch (no pretrained weights)")
     
+    # REGULARIZATION 1: Add dropout to BioGPT layers
+    for layer in biogpt.biogpt.layers:
+        if hasattr(layer, 'dropout'):
+            layer.dropout.p = 0.15  # Increase dropout
+        if hasattr(layer.self_attn, 'dropout'):
+            layer.self_attn.dropout = 0.1
+            
     # Create BioGPT text model
     biogpt = BioGptForCausalLM.from_pretrained("microsoft/biogpt")
     
-    # Resize token embeddings if we added tokens
+    # Resize token embeddings if we needed
     if len(tokenizer) != biogpt.config.vocab_size:
         biogpt.resize_token_embeddings(len(tokenizer))
         logger.info(f"Resized BioGPT embeddings to {len(tokenizer)}")
@@ -577,15 +723,21 @@ def train_model(config, output_dir, use_tensorboard=True):
         prefetch_factor=config.PREFETCH_FACTOR,
         pin_memory=True
     )
+    # Enhanced optimizer and scheduler
+    optimizer, scheduler = advanced_optimizer_scheduler(model, config, train_loader)
     
-    # Setup optimizer and scheduler
-    optimizer = AdamW(
-        model.parameters(),
-        lr=config.LR,
-        weight_decay=config.WEIGHT_DECAY,
-        betas=(0.9, 0.999),
-        eps=1e-8
-    )
+    # # Setup optimizer and scheduler
+    # optimizer = AdamW(
+    #     model.parameters(),
+    #     lr=config.LR,
+    #     weight_decay=config.WEIGHT_DECAY,
+    #     betas=(0.9, 0.999),
+    #     eps=1e-8
+    # )
+    
+    # Add regularization techniques
+    # adaptive_clip_fn, swa = training_regularization(model, config)
+    # swa_scheduler = swa(model)
     
     total_steps = len(train_loader) * config.NUM_EPOCHS // config.ACCUM_STEPS
     warmup_steps = int(config.WARMUP_RATIO * total_steps)
@@ -599,6 +751,10 @@ def train_model(config, output_dir, use_tensorboard=True):
     # Mixed precision scaler
     scaler = GradScaler('cuda') if config.MIXED_PRECISION and torch.cuda.is_available() else None
     
+    adaptive_clip_fn, StochasticWeightAveraging = training_regularization(model, config)
+    swa_scheduler = StochasticWeightAveraging(model, start_epoch=10, update_freq=5)
+    # temperature_scaler = TemperatureScaling().to(config.DEVICE) if hasattr(config, 'USE_TEMPERATURE_SCALING') else None
+
     logger.info(f"Training setup complete:")
     logger.info(f"  Total steps: {total_steps}")
     logger.info(f"  Warmup steps: {warmup_steps}")
@@ -676,11 +832,14 @@ def train_model(config, output_dir, use_tensorboard=True):
                 if (batch_idx + 1) % config.ACCUM_STEPS == 0:
                     if config.MIXED_PRECISION and scaler:
                         scaler.unscale_(optimizer)
-                        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                        # torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                        grad_norm, clip_value = adaptive_clip_fn(model)  # Adaptive clipping
                         scaler.step(optimizer)
                         scaler.update()
                     else:
-                        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                        # torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                        # optimizer.step()
+                        grad_norm, clip_value = adaptive_clip_fn(model)  # Adaptive clipping
                         optimizer.step()
                     
                     scheduler.step()
@@ -707,6 +866,8 @@ def train_model(config, output_dir, use_tensorboard=True):
                     logger.warning(f"OOM at batch {batch_idx}, clearing cache...")
                     torch.cuda.empty_cache()
                     optimizer.zero_grad()
+                    if hasattr(model, 'vision_projection'):
+                        model.vision_projection[2].p = min(0.3, model.vision_projection[2].p + 0.05)  # Increase dropout temporarily
                     continue
                 else:
                     raise
@@ -738,6 +899,12 @@ def train_model(config, output_dir, use_tensorboard=True):
         logger.info(f"  METEOR: {nlp_metrics['meteor']:.4f} | BLEU: {nlp_metrics['bleu']:.4f}")
         logger.info(f"  Learning Rate: {current_lr:.2e}")
         
+        swa_scheduler.update(epoch + 1)
+        current_lr = scheduler.get_last_lr()[0]
+        logger.info(f"  Current LR: {current_lr:.2e}")
+        if hasattr(model, 'vision_projection') and hasattr(model.vision_projection[2], 'p'):
+            logger.info(f"  Vision dropout: {model.vision_projection[2].p:.3f}")
+    
         # Update metrics history
         metrics_history['train_loss'].append(avg_train_loss)
         metrics_history['val_loss'].append(val_loss)
@@ -853,6 +1020,10 @@ def train_model(config, output_dir, use_tensorboard=True):
         model.load_state_dict(checkpoint['model_state_dict'])
         logger.info(f"Loaded best model for test evaluation (Medical F1: {checkpoint['medical_f1']:.4f})")
     
+    # Apply SWA weights for final evaluation
+    logger.info("Applying Stochastic Weight Averaging for final evaluation...")
+    swa_scheduler.apply_averaged_weights()
+
     test_results = evaluate_model(model, test_loader, tokenizer, config.DEVICE, config, "test")
     
     # Extract test metrics
