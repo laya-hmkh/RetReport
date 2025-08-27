@@ -3,14 +3,6 @@ Dataset utilities for the DeepEyeNet dataset.
 Handles image loading, caption preprocessing, and dataset creation.
 """
 
-
-
-"""2. In dataset.py:
-Add the get_medvit_transforms() function
-Update EyeNetDataset.__getitem__ to use proper transforms
-Add add_special_tokens=True to tokenizer calls
-"""
-
 import os
 import re
 import json
@@ -298,19 +290,6 @@ class EyeNetDataset(Dataset):
                 truncation=True, 
                 add_special_tokens=False # Don't let tokenizer auto-add tokens
             )
-            
-            # if index < 5:  # Print only first few for sanity
-            #     print(f"\n--- Sample {index} ---")
-            #     print(f"Raw caption: {caption}")
-            #     print(f"Formatted caption: {formatted_caption}")
-            #     print(f"Tokenized input_ids: {inputs['input_ids'].squeeze().tolist()[:15]}")
-            #     print(f"Decoded: {self.tokenizer.decode(inputs['input_ids'].squeeze()[:15])}")
-            #     print(f"Attention mask: {inputs['attention_mask'].squeeze().tolist()[:15]}")
-            #     print(f"Image tensor shape: {image.shape}")
-                
-            #     # Verify torkenization quality
-            #     full_decoded = self.tokenizer.decode(inputs['input_ids'].squeeze(), skip_special_tokens = True)
-            #     print(f"Full decoded: {full_decoded}")
                 
             return {
                 "pixel_values": image,
@@ -340,57 +319,3 @@ def analyze_caption_lengths(captions):
     plt.show()
     
     return lengths
-
-
-#$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$
-# # Usage in your main script:
-# image_paths, captions = load_and_process_json("your_file.json")
-# lengths = analyze_caption_lengths(captions)  # Call this first!
-# # Then set max_length based on 90th or 95th percentile
-# recommended_max_length = sorted(lengths)[int(0.90*len(lengths))]
-# dataset = EyeNetDataset(image_paths, captions, transform, tokenizer, recommended_max_length)
-
-#------------------------------------------------------------Fixing rokenization issue
-class EyeNetDatasetFixed:
-    """Updated dataset class with proper tokenization"""
-    def __getitem__(self, index):
-        try:
-            # Load image
-            image = Image.open(self.image_paths[index]).convert("RGB")
-            image = self.transform(image)
-            
-            # Get caption
-            caption = self.captions[index]
-            
-            # Use proper tokenization
-            inputs = tokenize_caption_properly(
-                self.tokenizer, 
-                caption, 
-                max_length=self.max_length, 
-                for_training=True
-            )
-            
-            if index < 5:  # Debug info for first few samples
-                print(f"\n--- Sample {index} (FIXED) ---")
-                print(f"Raw caption: {caption}")
-                print(f"Tokenized input_ids: {inputs['input_ids'].squeeze().tolist()[:15]}...")
-                print(f"Decoded: {self.tokenizer.decode(inputs['input_ids'].squeeze()[:15])}")
-                
-                # Check first token
-                first_token_id = inputs['input_ids'].squeeze()[0].item()
-                if first_token_id == self.tokenizer.bos_token_id:
-                    print("✅ Properly starts with BOS token")
-                elif first_token_id == self.tokenizer.eos_token_id:
-                    print("❌ Still starts with EOS token!")
-                else:
-                    print(f"⚠️ Starts with: {self.tokenizer.decode([first_token_id])}")
-            
-            return {
-                "pixel_values": image,
-                "input_ids": inputs["input_ids"].squeeze(),
-                "attention_mask": inputs["attention_mask"].squeeze()
-            }
-            
-        except Exception as e:
-            print(f"Error in __getitem__ for index {index}: {str(e)}")
-            raise
