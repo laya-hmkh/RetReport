@@ -20,9 +20,6 @@ import torch.utils.checkpoint as checkpoint
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-
-#---------------------MEDVIT---------------------
-
 NORM_EPS = 1e-5 # to avoid divison by zero
 
 # Stem stage (Stage 0)
@@ -112,11 +109,11 @@ class SELayer(nn.Module): # Squeeze and excitation layer
     
     def forward(self, x):
         b, c, _, _ = x.size()  # (Batch, Channels, Height, Width)    
-        # Step 1: SQUEEZE - Global average pooling
+        # Global average pooling
         y = self.avg_pool(x).view(b, c)  # (B, C, H, W) → (B, C, 1, 1) → (B, C)
-        # Step 2: EXCITATION - Learn channel importance
+        # Learn channel importance
         y = self.fc(y).view(b, c, 1, 1)  # (B, C) → (B, C/r) → (B, C) → (B, C, 1, 1)
-        # Step 3: SCALE - Apply attention weights
+        # SCALE - Apply attention weights
         return x * y  # Element-wise multiplication
     
     
@@ -133,11 +130,11 @@ class ECALayer(nn.Module): #Efficient Channel Attention
             self.sigmoid = h_sigmoid()
 
     def forward(self, x):
-            # Step 1: Global average pooling (same as SE)
+            # Global average pooling (same as SE)
             y = self.avg_pool(x)  # (B, C, H, W) → (B, C, 1, 1)    
-            # Step 2: Reshape for 1D convolution  
+            # Reshape for 1D convolution  
             y = self.conv(y.squeeze(-1).transpose(-1, -2))  # Magic happens here!
-            # Step 3: Reshape back and apply attention
+            # Reshape back and apply attention
             y = y.transpose(-1, -2).unsqueeze(-1)
             y = self.sigmoid(y)
             return x * y.expand_as(x)
@@ -162,8 +159,7 @@ class LocalityFeedForward(nn.Module):
         kernel_size = 3
 
         layers = []
-        # the first linear layer is replaced by 1x1 convolution.
-        # Layer sequence
+        # the first linear layer is replaced by 1x1 convolution. # Layer sequence
         layers.extend([
             # EXPANSION PHASE
             nn.Conv2d(in_dim, hidden_dim, 1, 1, 0, bias=False), # 1*1 Conv
@@ -227,8 +223,6 @@ class ECB(nn.Module):
         self.attention_path_dropout = DropPath(path_dropout)
         self.conv = LocalityFeedForward(out_channels, out_channels, 1, mlp_ratio, reduction=out_channels) # Refines local features | Local Processing
         self.norm = norm_layer(out_channels)
-        #self.mlp = Mlp(out_channels, mlp_ratio=mlp_ratio, drop=drop, bias=True)
-        #self.mlp_path_dropout = DropPath(path_dropout)
         self.is_bn_merged = False
 
     def merge_bn(self): # Batch Normalization merging | Deployment optimization
@@ -577,9 +571,6 @@ class VisionTextModel(nn.Module):
             nn.Linear(text_dim, text_dim)  # Additional transformation
         )
         
-        # Vision token embedding for learnable special tokens
-        # self.vision_token_embed = nn.Parameter(torch.randn(1, 1, text_dim) * 0.02)
-        
         # Learnable vision token that doesn't interfere with text
         self.vision_token_embed = nn.Parameter(torch.randn(text_dim) * 0.02)
         
@@ -648,92 +639,6 @@ class VisionTextModel(nn.Module):
         loss_t2v = F.cross_entropy(logits.T, labels)
         return (loss_v2t + loss_t2v) / 2
 
-    # def forward(self, pixel_values, input_ids, attention_mask):
-    #     """Forward pass with improved error handling and loss balancing."""
-    #     try:
-            
-    #         batch_size = pixel_values.size(0)
-            
-    #         # Get vision features
-    #         vision_features = self.vision_model(pixel_values)  # [batch, vision_dim]
-            
-    #         # Get text embeddings
-    #         text_embed = self.text_model.get_input_embeddings()(input_ids)  # [batch, seq_len, text_dim]
-            
-    #         # Apply topic attention if enabled
-    #         if hasattr(self, 'topic_attention'):
-    #             text_embed = self.topic_attention(text_embed, attention_mask=attention_mask)
-
-    #         # Project vision features to text dimension
-    #         vision_projected = self.vision_projection(vision_features)  # [batch, text_dim]
-    #         vision_embed = vision_projected.unsqueeze(1)  # [batch, 1, text_dim]
-            
-    #         # Add learnable vision token embedding
-    #         vision_embed = vision_embed + self.vision_token_embed.expand(batch_size, -1, -1)
-            
-    #         # Combine vision and text embeddings
-    #         combined_embed = torch.cat([vision_embed, text_embed], dim=1)  # [batch, 1+seq_len, text_dim]
-            
-    #         # Create combined attention mask
-    #         vision_mask = torch.ones(batch_size, 1, device=attention_mask.device, dtype=attention_mask.dtype)
-    #         combined_mask = torch.cat([vision_mask, attention_mask], dim=1)
-            
-    #         # Create labels for language modeling (ignore vision token)
-    #         labels = input_ids.clone()
-    #         labels[labels == self.text_model.config.pad_token_id] = -100
-    #         batch_size = labels.shape[0]
-    #         vision_label = torch.full((batch_size, 1), -100, dtype=labels.dtype, device=labels.device)
-    #         adjusted_labels = torch.cat([vision_label, labels], dim=1)
-            
-    #         # Forward through text model
-    #         outputs = self.text_model(
-    #             inputs_embeds=combined_embed,
-    #             attention_mask=combined_mask,
-    #             labels=adjusted_labels
-    #         )
-            
-    #         lm_loss = outputs.loss
-            
-    #         # Contrastive loss if enabled
-    #         cont_loss = torch.tensor(0.0, device=lm_loss.device)
-    #         if getattr(self.config, 'CONS_LOSS', False):
-    #             # Use mean pooling of text embeddings for contrastive learning
-    #             text_lengths = attention_mask.sum(dim=1, keepdim=True).float()
-    #             text_features = (text_embed * attention_mask.unsqueeze(-1)).sum(dim=1) / text_lengths
-    #             cont_loss = self.contrastive_loss(vision_features, text_features)
-
-    #         # Update loss history for balancing
-    #         if self.training:
-    #             self.loss_history['lm_loss'].append(lm_loss.item())
-    #             self.loss_history['cont_loss'].append(cont_loss.item())
-                
-    #             # Keep only recent history
-    #             if len(self.loss_history['lm_loss']) > 100:
-    #                 self.loss_history['lm_loss'] = self.loss_history['lm_loss'][-50:]
-    #                 self.loss_history['cont_loss'] = self.loss_history['cont_loss'][-50:]
-
-    #         # Get balanced weights
-    #         lm_weight, cont_weight = self.get_loss_weights()
-            
-    #         # Compute total loss
-    #         total_loss = lm_weight * lm_loss
-    #         if getattr(self.config, 'CONS_LOSS', False):
-    #             total_loss = total_loss + cont_weight * cont_loss
-
-    #         return {
-    #             'lm_loss': lm_loss,
-    #             'cont_loss': cont_loss,
-    #             'total_loss': total_loss,
-    #             'lm_weight': lm_weight,
-    #             'cont_weight': cont_weight
-    #         }
-            
-
-    #     except Exception as e:
-    #         logger.error(f"Error in VisionTextModel.forward: {str(e)}")
-    #         logger.error(f"Input shapes - pixel_values: {pixel_values.shape}, "
-    #                     f"input_ids: {input_ids.shape}, attention_mask: {attention_mask.shape}")
-    #         raise
     def forward(self, pixel_values, input_ids, attention_mask):
         """FIXED: Proper vision-text integration"""
         try:
@@ -824,51 +729,6 @@ class VisionTextModel(nn.Module):
             logger.error(f"Input shapes - pixel_values: {pixel_values.shape}, "
                         f"input_ids: {input_ids.shape}, attention_mask: {attention_mask.shape}")
             raise
-
-            
-    # def generate_caption(self, pixel_values, tokenizer, max_length=128, num_beams=1, early_stopping=False):
-    #     try:
-    #         # Set models to eval mode
-    #         self.vision_model.eval()
-    #         self.text_model.eval()
-        
-    #         with torch.no_grad():
-    #             vision_features = self.vision_model(pixel_values)
-    #             batch_size = pixel_values.size(0)
-            
-    #             # Project vision features
-    #             vision_projected = self.vision_projection(vision_features)
-    #             vision_embed = vision_projected.unsqueeze(1)
-            
-    #         # Add learnable vision token embedding
-    #         vision_embed = vision_embed + self.vision_token_embed.expand(batch_size, -1, -1)
-            
-    #         # Create attention mask for vision tokens
-    #         attention_mask = torch.ones(batch_size, 1, device=vision_embed.device)
-
-    #         # Generate with improved parameters
-    #         generated_ids = self.text_model.generate(
-    #             inputs_embeds=vision_embed,
-    #             attention_mask=attention_mask,
-    #             max_length=max_length,
-    #             min_length=8,  # Ensure minimum length
-    #             num_beams=max(num_beams, 1),
-    #             early_stopping=early_stopping,
-    #             pad_token_id=tokenizer.pad_token_id,
-    #             eos_token_id=tokenizer.eos_token_id,
-    #             bos_token_id=tokenizer.bos_token_id,
-    #             do_sample=False,  # Deterministic for testing
-    #             repetition_penalty=1.3,  # Prevent repetition
-    #             # length_penalty=1.1,  # Encourage longer sequences
-    #             no_repeat_ngram_size=3,  # Prevent repetition
-    #             bad_words_ids=[[tokenizer.unk_token_id]] if hasattr(tokenizer, 'unk_token_id') else None
-    #         )
-            
-    #         return generated_ids
-            
-    #     except Exception as e:
-    #         logger.error(f"Error in generate_caption: {str(e)}")
-    #         raise
     
     def generate_caption(self, pixel_values, tokenizer, max_length=128, num_beams=1, early_stopping=False):
         """FIXED: Proper caption generation"""
@@ -928,3 +788,4 @@ class VisionTextModel(nn.Module):
             print(f"  Recent LM Loss: {recent_lm:.4f} (weight: {lm_weight:.4f})")
             print(f"  Recent Cont Loss: {recent_cont:.4f} (weight: {cont_weight:.4f})")
             print(f"  Total iterations: {len(self.loss_history['lm_loss'])}")
+
