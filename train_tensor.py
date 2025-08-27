@@ -728,19 +728,6 @@ def train_model(config, output_dir, use_tensorboard=True):
     # Enhanced optimizer and scheduler
     optimizer, scheduler = advanced_optimizer_scheduler(model, config, train_loader)
     
-    # # Setup optimizer and scheduler
-    # optimizer = AdamW(
-    #     model.parameters(),
-    #     lr=config.LR,
-    #     weight_decay=config.WEIGHT_DECAY,
-    #     betas=(0.9, 0.999),
-    #     eps=1e-8
-    # )
-    
-    # Add regularization techniques
-    # adaptive_clip_fn, swa = training_regularization(model, config)
-    # swa_scheduler = swa(model)
-    
     total_steps = len(train_loader) * config.NUM_EPOCHS // config.ACCUM_STEPS
     warmup_steps = int(config.WARMUP_RATIO * total_steps)
     
@@ -1206,3 +1193,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
