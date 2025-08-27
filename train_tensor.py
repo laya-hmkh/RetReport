@@ -305,7 +305,7 @@ def create_model_and_tokenizer(config):
     )
     
     # Load pretrained MedViT weights if available
-    medvit_weights_path = "MedViT_base_im1k.pth"  # Update this path
+    medvit_weights_path = "MedViTWeight\MedViT_base_im1k.pth"  # Update this path
     if os.path.exists(medvit_weights_path):
         try:
             medvit.load_pretrained_weights(medvit_weights_path)
@@ -314,15 +314,17 @@ def create_model_and_tokenizer(config):
             logger.warning(f"Could not load MedViT weights: {e}")
     # logger.info("⚠️ Training MedViT from scratch (no pretrained weights)")
     
-    # REGULARIZATION 1: Add dropout to BioGPT layers
-    for layer in biogpt.biogpt.layers:
-        if hasattr(layer, 'dropout'):
-            layer.dropout.p = 0.15  # Increase dropout
-        if hasattr(layer.self_attn, 'dropout'):
-            layer.self_attn.dropout = 0.1
+    
             
     # Create BioGPT text model
     biogpt = BioGptForCausalLM.from_pretrained("microsoft/biogpt")
+
+    # REGULARIZATION 1: Add dropout to BioGPT layers
+    for layer in biogpt.biogpt.layers:
+        if hasattr(layer, 'dropout'):
+            layer.dropout = 0.15  # Increase dropout
+        if hasattr(layer.self_attn, 'dropout'):
+            layer.self_attn.dropout = 0.1
     
     # Resize token embeddings if we needed
     if len(tokenizer) != biogpt.config.vocab_size:
